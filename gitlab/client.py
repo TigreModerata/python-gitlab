@@ -18,13 +18,12 @@ from typing import (
 from urllib import parse
 
 import requests
+from cachetools import cachedmethod
 
 import gitlab
 import gitlab.config
 import gitlab.const
 import gitlab.exceptions
-
-# import gitlab.utils as utils
 from gitlab import _backends, utils
 
 REDIRECT_MSG = (
@@ -845,7 +844,7 @@ class Gitlab:
         ):
             self.ttl_cache = None
 
-        @utils.mycachedmethod
+        @cachedmethod(lambda self: self.ttl_cache, key=utils.get_hashable_cache_key)
         def get_cached(
             self: "Gitlab",
             path: str,

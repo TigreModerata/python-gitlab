@@ -4,24 +4,11 @@ import pathlib
 import traceback
 import urllib.parse
 import warnings
-from collections.abc import MutableMapping
-from typing import (
-    Any,
-    Callable,
-    cast,
-    Dict,
-    Iterator,
-    Literal,
-    Optional,
-    Tuple,
-    Type,
-    TypeVar,
-    Union,
-)
+from typing import Any, Callable, Dict, Iterator, Literal, Optional, Tuple, Type, Union
 
 import frozendict
 import requests
-from cachetools import cachedmethod, keys
+from cachetools import keys
 
 from gitlab import types
 
@@ -209,33 +196,6 @@ def get_hashable_cache_key(
     except TypeError:
         logging.info("Query key not hashable, result will not be cached")
         return None
-
-
-__F = TypeVar("__F", bound=Callable[..., Union[Dict[str, Any], requests.Response]])
-
-
-def mycachedmethod(f: __F) -> __F:
-    """Manage Gitlab http_get cache, with correct typing
-
-    Used here to try to satisfy mypy with untyped wrapper
-
-    Args:
-        f: the wrapped, typed function
-
-    """
-
-    def cachemethod(
-        cache: Callable[[Any], MutableMapping[Any, Any] | None], key: Callable[..., Any]
-    ) -> Callable[..., __F]:
-        if key is None:
-            cache = None
-        return cast(Callable[..., __F], cachedmethod(cache, key))
-
-    @cachemethod(lambda gl: gl.ttl_cache, key=get_hashable_cache_key)
-    def _wrapped_f(gl: object, *args: Any, **kwargs: Any) -> Any:
-        return f(gl, *args, **kwargs)
-
-    return _wrapped_f
 
 
 def warn(
