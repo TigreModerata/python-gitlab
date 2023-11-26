@@ -5,6 +5,7 @@ import warnings
 import pytest
 import requests
 import responses
+from cachetools import keys
 
 from gitlab import types, utils
 
@@ -214,3 +215,21 @@ def test_masking_formatter_masks_token(capsys: pytest.CaptureFixture):
 
     assert "[MASKED]" in captured.err
     assert token not in captured.err
+
+
+def test_get_hashable_cache_key():
+    path = "test_path"
+    query_data = {}
+    key = utils.get_hashable_cache_key(None, path, query_data)
+    assert key == keys.hashkey(path, None, False, False)
+
+    query_data = {"a": 1, "b": 2}
+    assert utils.get_hashable_cache_key(None, path, query_data)
+    query_data = {"a": 1, "b": [1, 2, 3]}
+    assert utils.get_hashable_cache_key(None, path, query_data)
+    query_data = {"a": 1, "b": set({1, 2, 3})}
+    assert utils.get_hashable_cache_key(None, path, query_data)
+    query_data = {"a": 1, "b": {"b1": 2, "b2": 3}}
+    assert utils.get_hashable_cache_key(None, path, query_data)
+    query_data = {"a": 1, "b": {"b1": 2, "b2": [3, 4]}}
+    assert utils.get_hashable_cache_key(None, path, query_data) is None

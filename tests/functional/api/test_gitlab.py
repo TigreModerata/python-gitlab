@@ -1,5 +1,9 @@
+import time
+import uuid
+
 import pytest
 import requests
+from cachetools import TTLCache
 
 import gitlab
 
@@ -282,3 +286,37 @@ def test_list_iterator_true_nowarning(gl, recwarn):
     items = gl.gitlabciymls.list(iterator=True)
     assert not recwarn
     assert len(list(items)) > 20
+
+
+@pytest.mark.parametrize("gl_cached", [TTLCache(maxsize=10, ttl=2)], indirect=True)
+def test_get_with_cache(gl_cached):
+    _id = uuid.uuid4().hex
+    name = f"test-project-{_id}"
+    project = gl_cached.projects.create(name=name)
+
+    first_call = gl_cached.projects.get(project.id)
+    key = gitlab.utils.get_hashable_cache_key(
+        gl_cached, f"/projects/{project.id}", query_data=None, streamed=False, raw=False
+    )
+    cached_project = gl_cached.ttl_cache.get(key)
+
+    assert first_call == project
+    assert gl_cached.ttl_cache.maxsize == 10
+    assert gl_cached.ttl_cache.currsize == 1
+    assert cached_project == first_call.asdict()
+    assert gl_cached.count_get_calls == 1
+
+    second_call = gl_cached.projects.get(project.id)
+    assert cached_project == second_call.asdict()
+    assert gl_cached.ttl_cache.currsize == 1
+    assert gl_cached.count_get_calls == 1
+
+    time.sleep(gl_cached.ttl_cache.ttl)
+
+    assert gl_cached.ttl_cache.currsize == 0
+
+    third_call = gl_cached.projects.get(project.id)
+    assert third_call == project
+    assert gl_cached.ttl_cache.currsize == 1
+    assert gl_cached.count_get_calls == 2
+    gl_cached.projects.delete(project.id)

@@ -51,5 +51,8 @@ def safe_delete(
             logging.info(f"{object!r} already deleted.")
             pass
 
+        cache = manager.gitlab.ttl_cache
+        if cache:
+            cache.clear()
         time.sleep(SLEEP_INTERVAL)
     pytest.fail(f"{object!r} was not deleted")

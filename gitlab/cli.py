@@ -370,6 +370,7 @@ def main() -> None:
         "api_version",
         "pagination",
         "user_agent",
+        "ttl_cache",
         "private_token",
         "oauth_token",
         "job_token",

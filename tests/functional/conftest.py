@@ -294,6 +294,31 @@ def gl(gitlab_url: str, gitlab_token: str) -> gitlab.Gitlab:
     return instance
 
 
+@pytest.fixture(scope="function")
+def gl_cached(gitlab_url: str, gitlab_token: str, request) -> gitlab.Gitlab:
+    """Helper instance, with cached http_get, to make fixtures and asserts directly via the API.
+    Returns:
+         Gitlab instance with TTLCache passed as request param
+    """
+
+    logging.info(
+        f"Instantiating python-gitlab gitlab.Gitlab instance with cache {request.param}"
+    )
+    instance = gitlab.Gitlab(
+        gitlab_url, private_token=gitlab_token, ttl_cache=request.param
+    )
+
+    logging.info("Reset GitLab")
+    reset_gitlab(instance)
+
+    logging.info("Reset TTLCache")
+    instance.count_get_calls = 0
+    if instance.ttl_cache:
+        instance.ttl_cache.clear()
+
+    return instance
+
+
 @pytest.fixture(scope="session")
 def gitlab_plan(gl: gitlab.Gitlab) -> Optional[str]:
     return helpers.get_gitlab_plan(gl)

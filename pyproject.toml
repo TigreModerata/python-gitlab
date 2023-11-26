@@ -19,6 +19,8 @@ requires-python = ">=3.8.0"
 dependencies = [
     "requests>=2.25.0",
     "requests-toolbelt>=0.10.1",
+    "cachetools>=5.3.2",
+    "frozendict>=2.3.8"
 ]
 classifiers = [
     "Development Status :: 5 - Production/Stable",

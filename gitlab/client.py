@@ -23,6 +23,8 @@ import gitlab
 import gitlab.config
 import gitlab.const
 import gitlab.exceptions
+
+# import gitlab.utils as utils
 from gitlab import _backends, utils
 
 REDIRECT_MSG = (
@@ -83,6 +85,7 @@ class Gitlab:
         pagination: Optional[str] = None,
         order_by: Optional[str] = None,
         user_agent: str = gitlab.const.USER_AGENT,
+        ttl_cache: Optional[Any] = None,
         retry_transient_errors: bool = False,
         keep_base_url: bool = False,
         **kwargs: Any,
@@ -119,6 +122,8 @@ class Gitlab:
         self.per_page = per_page
         self.pagination = pagination
         self.order_by = order_by
+        self.ttl_cache = ttl_cache
+        self.count_get_calls: Optional[int] = 0 if self.ttl_cache is not None else None
 
         # We only support v4 API at this time
         if self._api_version not in ("4",):
@@ -215,6 +220,8 @@ class Gitlab:
         return self
 
     def __exit__(self, *args: Any) -> None:
+        if self.ttl_cache:
+            self.ttl_cache.clear()
         self.session.close()
 
     def __getstate__(self) -> Dict[str, Any]:
@@ -346,6 +353,7 @@ class Gitlab:
             pagination=options.get("pagination") or config.pagination,
             order_by=options.get("order_by") or config.order_by,
             user_agent=options.get("user_agent") or config.user_agent,
+            ttl_cache=options.get("ttl_cache") or None,
         )
 
     @staticmethod
@@ -807,6 +815,10 @@ class Gitlab:
     ) -> Union[Dict[str, Any], requests.Response]:
         """Make a GET request to the Gitlab server.
 
+        Note: if ttl_cache is not None for the instance, it
+        gets implemented here via decorator. 'methodkey' allows
+        the passing of a specific TTLCache at runtime.
+
         Args:
             path: Path or full URL to query ('/projects' or
                         'http://whatever/v4/api/projecs')
@@ -819,29 +831,53 @@ class Gitlab:
             A requests result object is streamed is True or the content type is
             not json.
             The parsed json data otherwise.
+            Output is cached if self.ttl_cache is not None
 
         Raises:
             GitlabHttpError: When the return code is not 2xx
             GitlabParsingError: If the json data could not be parsed
         """
-        query_data = query_data or {}
-        result = self.http_request(
-            "get", path, query_data=query_data, streamed=streamed, **kwargs
-        )
-        content_type = utils.get_content_type(result.headers.get("Content-Type"))
 
-        if content_type == "application/json" and not streamed and not raw:
-            try:
-                json_result = result.json()
-                if TYPE_CHECKING:
-                    assert isinstance(json_result, dict)
-                return json_result
-            except Exception as e:
-                raise gitlab.exceptions.GitlabParsingError(
-                    error_message="Failed to parse the server message"
-                ) from e
-        else:
-            return result
+        counter = self.count_get_calls
+        # In case someone passes unhashable query_data disable cache
+        if not utils.get_hashable_cache_key(
+            self, path, query_data, streamed, raw, **kwargs
+        ):
+            self.ttl_cache = None
+
+        @utils.mycachedmethod
+        def get_cached(
+            self: "Gitlab",
+            path: str,
+            query_data: Optional[Dict[str, Any]] = None,
+            streamed: bool = False,
+            raw: bool = False,
+            **kwargs: Any,
+        ) -> Union[Dict[str, Any], requests.Response]:
+            nonlocal counter
+            if counter is not None:
+                counter += 1
+
+            result = self.http_request(
+                "get", path, query_data=query_data, streamed=streamed, **kwargs
+            )
+            content_type = utils.get_content_type(result.headers.get("Content-Type"))
+            if content_type == "application/json" and not streamed and not raw:
+                try:
+                    json_result = result.json()
+                    if TYPE_CHECKING:
+                        assert isinstance(json_result, dict)
+                    return json_result
+                except Exception as e:
+                    raise gitlab.exceptions.GitlabParsingError(
+                        error_message="Failed to parse the server message"
+                    ) from e
+            else:
+                return result
+
+        result = get_cached(self, path, query_data, streamed, raw, **kwargs)
+        self.count_get_calls = counter
+        return result
 
     def http_head(
         self, path: str, query_data: Optional[Dict[str, Any]] = None, **kwargs: Any
